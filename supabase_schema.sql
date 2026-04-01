@@ -56,6 +56,7 @@ CREATE POLICY "Users can insert their own likes." ON likes FOR INSERT WITH CHECK
 ALTER TABLE matches ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can see their matches." ON matches FOR SELECT USING (auth.uid() = ANY(user_ids));
 CREATE POLICY "Users can insert matches." ON matches FOR INSERT WITH CHECK (auth.uid() = ANY(user_ids));
+CREATE POLICY "Users can update their matches." ON matches FOR UPDATE USING (auth.uid() = ANY(user_ids));
 
 -- Messages
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;

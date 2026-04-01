@@ -45,8 +45,8 @@ export default function Matches({ user, profile }: MatchesProps) {
       );
 
       setMatches(matchData.sort((a, b) => {
-        const aTime = a.created_at || '';
-        const bTime = b.created_at || '';
+        const aTime = a.last_message_at || a.created_at || '';
+        const bTime = b.last_message_at || b.created_at || '';
         return bTime.toString().localeCompare(aTime.toString());
       }));
       setLoading(false);
@@ -96,7 +96,9 @@ export default function Matches({ user, profile }: MatchesProps) {
               />
               <div className="flex-1 min-w-0">
                 <h3 className="font-bold text-slate-900 truncate">{match.otherUser.name}</h3>
-                <p className="text-xs text-slate-500 truncate">{match.otherUser.department}</p>
+                <p className="text-xs text-slate-500 truncate">
+                  {match.last_message || match.otherUser.department}
+                </p>
               </div>
               <Link
                 to={`/chat/${match.id}`}
