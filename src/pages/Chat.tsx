@@ -18,10 +18,21 @@ export default function Chat({ user, profile }: ChatProps) {
   const [match, setMatch] = useState<Match | null>(null);
   const [otherUser, setOtherUser] = useState<UserProfile | null>(null);
   const [inputText, setInputText] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [sendError, setSendError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  useEffect(() => {
     if (!matchId) return;
+
+    setIsLoading(true);
+    setMessages([]);
+    setOtherUser(null);
+    setMatch(null);
 
     const fetchMatchInfo = async () => {
       const { data: matchData } = await supabase
@@ -53,12 +64,12 @@ export default function Chat({ user, profile }: ChatProps) {
       
       if (data) {
         setMessages(data as Message[]);
-        setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
       }
     };
 
-    fetchMatchInfo();
-    fetchMessages();
+    Promise.all([fetchMatchInfo(), fetchMessages()]).finally(() => {
+      setIsLoading(false);
+    });
 
     // Subscribe to new messages
     const subscription = supabase
@@ -69,8 +80,12 @@ export default function Chat({ user, profile }: ChatProps) {
         table: 'messages',
         filter: `match_id=eq.${matchId}`
       }, (payload) => {
-        setMessages(prev => [...prev, payload.new as Message]);
-        setTimeout(() => scrollRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+        setMessages(prev => {
+          // Supabase realtime fires for the sender's own inserts too; skip if already present
+          const exists = (prev as Message[]).some((m: Message) => m.id === (payload.new as Message).id);
+          if (exists) return prev;
+          return [...(prev as Message[]), payload.new as Message];
+        });
       })
       .subscribe();
 
@@ -85,20 +100,31 @@ export default function Chat({ user, profile }: ChatProps) {
 
     const text = inputText.trim();
     setInputText('');
+    setSendError(null);
 
     try {
+      const now = new Date().toISOString();
       const { error } = await supabase
         .from('messages')
         .insert([{
           match_id: matchId,
           sender_uid: user.id,
           text,
-          created_at: new Date().toISOString(),
+          created_at: now,
         }]);
       
       if (error) throw error;
+
+      // Update match's last message preview (best-effort; non-critical)
+      const { error: updateError } = await supabase
+        .from('matches')
+        .update({ last_message: text, last_message_at: now })
+        .eq('id', matchId);
+      if (updateError) console.error('Failed to update last_message:', updateError);
     } catch (err) {
       console.error(err);
+      setInputText(text);
+      setSendError('Failed to send message. Please try again.');
     }
   };
 
@@ -114,7 +140,22 @@ export default function Chat({ user, profile }: ChatProps) {
     );
   }
 
-  if (!otherUser) return null;
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="w-8 h-8 border-4 border-orange-600 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!otherUser) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 text-center">
+        <h3 className="text-xl font-bold text-slate-900">Match not found</h3>
+        <Link to="/matches" className="mt-4 text-orange-600 font-bold">Back to Matches</Link>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto h-[calc(100vh-12rem)] flex flex-col bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
@@ -173,6 +214,9 @@ export default function Chat({ user, profile }: ChatProps) {
 
       {/* Input Area */}
       <form onSubmit={handleSendMessage} className="p-4 bg-white border-t border-slate-100">
+        {sendError && (
+          <p className="text-xs text-red-500 mb-2 px-1">{sendError}</p>
+        )}
         <div className="flex gap-2">
           <input
             type="text"
