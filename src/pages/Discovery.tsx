@@ -49,24 +49,29 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
   });
   const [showFilters, setShowFilters] = useState(false);
   const [matchModal, setMatchModal] = useState<{ profile: UserProfile; matchId: string } | null>(null);
+  const [recyclingFeed, setRecyclingFeed] = useState(false);
 
   useEffect(() => {
     fetchStudents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
-  const fetchStudents = useCallback(async () => {
+  const fetchStudents = useCallback(async (includeSeen = false) => {
     setLoading(true);
     try {
-      // Fetch UIDs of profiles the current user already liked
-      const { data: likedData } = await supabase
-        .from('likes')
-        .select('to_uid')
-        .eq('from_uid', user.id);
+      let excludeUids = new Set<string>([user.id]);
 
-      const likedUids = new Set((likedData ?? []).map((l: { to_uid: string }) => l.to_uid));
-      const skippedUids = getSkipped(user.id);
-      const excludeUids = new Set([...likedUids, ...skippedUids, user.id]);
+      if (!includeSeen) {
+        // Fetch UIDs of profiles the current user already liked
+        const { data: likedData } = await supabase
+          .from('likes')
+          .select('to_uid')
+          .eq('from_uid', user.id);
+
+        const likedUids = new Set((likedData ?? []).map((l: { to_uid: string }) => l.to_uid));
+        const skippedUids = getSkipped(user.id);
+        excludeUids = new Set([...likedUids, ...skippedUids, user.id]);
+      }
 
       let query = supabase
         .from('profiles')
@@ -108,6 +113,7 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
       }
 
       setCurrentIndex(0);
+      setRecyclingFeed(includeSeen);
     } catch (err) {
       console.error(err);
     } finally {
@@ -173,6 +179,13 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
 
   const currentStudent = students[currentIndex];
 
+  useEffect(() => {
+    if (!loading && students.length > 0 && currentIndex >= students.length) {
+      // Recycle feed when the fresh queue is exhausted so users can keep discovering.
+      fetchStudents(true);
+    }
+  }, [currentIndex, students.length, loading, fetchStudents]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -185,7 +198,12 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
     <div className="max-w-xl mx-auto">
       {/* Header & Filters */}
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-slate-900">Discover</h2>
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">Discover</h2>
+          {recyclingFeed && (
+            <p className="text-xs text-slate-500 mt-0.5">Showing previously seen profiles so you never run out.</p>
+          )}
+        </div>
         <button
           onClick={() => setShowFilters(!showFilters)}
           className={cn(

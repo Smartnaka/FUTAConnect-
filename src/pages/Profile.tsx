@@ -13,6 +13,8 @@ interface ProfileProps {
   onUpdate: (profile: UserProfile) => void;
 }
 
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
+
 export default function Profile({ user, profile, onUpdate }: ProfileProps) {
   const [name, setName] = useState(profile.name);
   const [department, setDepartment] = useState(
@@ -156,7 +158,7 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,image/heic,image/heif"
                 onChange={handlePictureChange}
                 className="hidden"
               />

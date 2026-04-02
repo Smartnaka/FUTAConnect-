@@ -12,6 +12,8 @@ interface ProfileSetupProps {
   onComplete: (profile: UserProfile) => void;
 }
 
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
+
 export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
   const [name, setName] = useState(user.user_metadata?.full_name || '');
   const [department, setDepartment] = useState('');
@@ -153,7 +155,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,image/heic,image/heif"
                 onChange={handlePictureChange}
                 className="hidden"
               />
