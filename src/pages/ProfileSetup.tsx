@@ -21,7 +21,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
   const [level, setLevel] = useState('');
   const [bio, setBio] = useState('');
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
-  const [profile_picture, setProfilePicture] = useState(`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`);
+  const [profile_picture, setProfilePicture] = useState('');
   const [loading, setLoading] = useState(false);
   const [uploadingPicture, setUploadingPicture] = useState(false);
   const [pictureError, setPictureError] = useState('');
@@ -101,7 +101,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
       department: resolvedDepartment,
       level,
       interests: selectedInterests,
-      bio,
+      bio: bio.trim(),
       profile_picture,
       created_at: new Date().toISOString(),
       last_seen: new Date().toISOString(),
@@ -139,7 +139,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
           <div className="flex flex-col items-center gap-4">
             <div className="relative group">
               <img
-                src={profile_picture}
+                src={profile_picture || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`}
                 alt="Profile"
                 className="w-32 h-32 rounded-full border-4 border-orange-100 object-cover"
                 referrerPolicy="no-referrer"
@@ -161,7 +161,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
               />
             </div>
             <p className="text-xs text-slate-400">
-              {uploadingPicture ? 'Uploading...' : 'Click to upload profile picture'}
+              {uploadingPicture ? 'Uploading...' : 'Click to upload profile picture (Required)'}
             </p>
             {pictureError && <p className="text-xs text-red-500">{pictureError}</p>}
           </div>
@@ -229,8 +229,9 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
               value={bio}
               onChange={(e) => setBio(e.target.value)}
               rows={3}
+              required
               className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none resize-none"
-              placeholder="Tell us a bit about yourself..."
+              placeholder="Tell us a bit about yourself... (Required)"
             />
           </div>
 
