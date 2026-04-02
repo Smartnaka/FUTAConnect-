@@ -169,12 +169,16 @@ export default function Chat({ user, profile }: ChatProps) {
         setMessages((prev: Message[]) => {
           // If this message is already present (real ID match), ignore
           if (prev.some((m: Message) => m.id === incoming.id)) return prev;
-          // Replace optimistic placeholder (temp_ prefixed id) from this user
+          // Replace optimistic placeholder: remove only the first (oldest) pending entry
+          // with matching text from this sender to handle rapid duplicate sends correctly.
           if (incoming.sender_uid === user.id) {
-            const withoutPending = prev.filter(
-              (m: Message) => !(String(m.id).startsWith('temp_') && m.text === incoming.text)
+            const pendingIdx = prev.findIndex(
+              (m: Message) => String(m.id).startsWith('temp_') && m.text === incoming.text
             );
-            return [...withoutPending, incoming];
+            if (pendingIdx !== -1) {
+              const withoutPending = [...prev.slice(0, pendingIdx), ...prev.slice(pendingIdx + 1)];
+              return [...withoutPending, incoming];
+            }
           }
           return [...prev, incoming];
         });
@@ -214,7 +218,7 @@ export default function Chat({ user, profile }: ChatProps) {
         .from('matches')
         .update({ last_message: text, last_message_at: now })
         .eq('id', matchId)
-        .then(({ error: updateError }: { error: Error | null }) => {
+        .then(({ error: updateError }: { error: { message: string } | null }) => {
           if (updateError) console.error('Failed to update last_message:', updateError);
         });
     } catch (err) {
