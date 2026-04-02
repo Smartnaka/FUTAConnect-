@@ -24,9 +24,15 @@ function getSkipped(uid: string): Set<string> {
   }
 }
 
+const SKIPPED_CAP = 500;
+
 function saveSkipped(uid: string, skipped: Set<string>) {
   try {
-    localStorage.setItem(skippedKey(uid), JSON.stringify([...skipped]));
+    // Enforce a cap so localStorage doesn't grow unboundedly.
+    // When over the limit, drop the oldest entries (head of the array).
+    const entries = [...skipped];
+    const capped = entries.length > SKIPPED_CAP ? entries.slice(entries.length - SKIPPED_CAP) : entries;
+    localStorage.setItem(skippedKey(uid), JSON.stringify(capped));
   } catch {
     // localStorage unavailable — skip persistence silently
   }
@@ -123,13 +129,17 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
 
       // Enforce mutual-like check server-side via a SECURITY DEFINER function
       // This prevents bypassing the validation through direct client-side inserts.
-      const { data: matchId, error: matchError } = await supabase
-        .rpc('create_match_if_mutual', { other_uid: targetUser.uid });
+      try {
+        const { data: matchId, error: matchError } = await supabase
+          .rpc('create_match_if_mutual', { other_uid: targetUser.uid });
 
-      if (matchError) {
-        console.error('Match RPC error:', matchError);
-      } else if (matchId) {
-        setMatchModal({ profile: targetUser, matchId: matchId as string });
+        if (matchError) {
+          console.error('Match RPC error:', matchError);
+        } else if (matchId) {
+          setMatchModal({ profile: targetUser, matchId: matchId as string });
+        }
+      } catch (rpcErr) {
+        console.error('Unexpected error calling create_match_if_mutual:', rpcErr);
       }
 
       nextStudent();

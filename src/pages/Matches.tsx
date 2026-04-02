@@ -5,18 +5,11 @@ import { Link } from 'react-router-dom';
 import { MessageCircle, Heart, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { User } from '@supabase/supabase-js';
+import { getLastRead } from '../lib/unread';
 
 interface MatchesProps {
   user: User;
   profile: UserProfile;
-}
-
-function getLastRead(matchId: string): number {
-  try {
-    return parseInt(localStorage.getItem(`futaconnect_lastread_${matchId}`) ?? '0', 10) || 0;
-  } catch {
-    return 0;
-  }
 }
 
 export default function Matches({ user, profile }: MatchesProps) {

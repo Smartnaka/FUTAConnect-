@@ -5,6 +5,7 @@ import { UserProfile, Match, Message } from '../types';
 import { Send, ChevronLeft, Info, MessageCircle, ArrowLeft } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '../lib/utils';
+import { getLastRead, markAsRead } from '../lib/unread';
 import { User } from '@supabase/supabase-js';
 
 interface MatchWithUser extends Match {
@@ -14,24 +15,6 @@ interface MatchWithUser extends Match {
 interface ChatProps {
   user: User;
   profile: UserProfile;
-}
-
-const lastReadKey = (matchId: string) => `futaconnect_lastread_${matchId}`;
-
-function getLastRead(matchId: string): number {
-  try {
-    return parseInt(localStorage.getItem(lastReadKey(matchId)) ?? '0', 10) || 0;
-  } catch {
-    return 0;
-  }
-}
-
-function markAsRead(matchId: string) {
-  try {
-    localStorage.setItem(lastReadKey(matchId), Date.now().toString());
-  } catch {
-    // Ignore
-  }
 }
 
 export default function Chat({ user, profile }: ChatProps) {
