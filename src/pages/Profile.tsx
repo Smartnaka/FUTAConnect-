@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
 import { DEPARTMENTS, LEVELS, INTERESTS } from '../constants';
@@ -21,8 +21,37 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
   const [selectedInterests, setSelectedInterests] = useState<string[]>(profile.interests);
   const [profile_picture, setProfilePicture] = useState(profile.profile_picture);
   const [loading, setLoading] = useState(false);
+  const [uploadingPicture, setUploadingPicture] = useState(false);
+  const [pictureError, setPictureError] = useState('');
   const [success, setSuccess] = useState(false);
   const [nameError, setNameError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handlePictureChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setPictureError('');
+    setUploadingPicture(true);
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const fileName = `${user.id}-${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
+      setProfilePicture(data.publicUrl);
+    } catch (err) {
+      console.error(err);
+      setPictureError('Failed to upload image. Please try again.');
+    } finally {
+      setUploadingPicture(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const toggleInterest = (interest: string) => {
     if (selectedInterests.includes(interest)) {
@@ -89,11 +118,19 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
               />
               <button
                 type="button"
-                onClick={() => setProfilePicture(`https://api.dicebear.com/7.x/avataaars/svg?seed=${Math.random()}`)}
-                className="absolute bottom-0 right-0 p-2 bg-white text-orange-600 rounded-full shadow-lg hover:bg-slate-50 transition-all border border-slate-100"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingPicture}
+                className="absolute bottom-0 right-0 p-2 bg-white text-orange-600 rounded-full shadow-lg hover:bg-slate-50 transition-all border border-slate-100 disabled:opacity-50"
               >
                 <Camera size={18} />
               </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePictureChange}
+                className="hidden"
+              />
             </div>
           </div>
         </div>
@@ -103,6 +140,8 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
             <div>
               <h2 className="text-2xl font-bold text-slate-900">{profile.name}</h2>
               <p className="text-slate-500">{profile.email}</p>
+              {uploadingPicture && <p className="text-xs text-orange-500 mt-1">Uploading picture...</p>}
+              {pictureError && <p className="text-xs text-red-500 mt-1">{pictureError}</p>}
             </div>
             <button
               onClick={() => supabase.auth.signOut()}
