@@ -20,6 +20,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [profile_picture, setProfilePicture] = useState(`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`);
   const [loading, setLoading] = useState(false);
+  const [nameError, setNameError] = useState('');
 
   const toggleInterest = (interest: string) => {
     if (selectedInterests.includes(interest)) {
@@ -32,6 +33,11 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!department || !level || selectedInterests.length === 0) return;
+    if (name.trim().length < 2) {
+      setNameError('Name must be at least 2 characters.');
+      return;
+    }
+    setNameError('');
 
     setLoading(true);
     const profileData: UserProfile = {
@@ -100,11 +106,13 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
               <input
                 type="text"
                 required
+                minLength={2}
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => { setName(e.target.value); setNameError(''); }}
                 className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
                 placeholder="John Doe"
               />
+              {nameError && <p className="text-xs text-red-500 mt-1">{nameError}</p>}
             </div>
 
             <div>

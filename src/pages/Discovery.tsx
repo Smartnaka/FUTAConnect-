@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
 import { DEPARTMENTS, LEVELS } from '../constants';
 import { cn } from '../lib/utils';
-import { Heart, X, Filter, GraduationCap, Search } from 'lucide-react';
+import { Heart, X, Filter, GraduationCap, Search, MessageCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User } from '@supabase/supabase-js';
 
@@ -12,7 +13,27 @@ interface DiscoveryProps {
   profile: UserProfile;
 }
 
+const skippedKey = (uid: string) => `futaconnect_skipped_${uid}`;
+
+function getSkipped(uid: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(skippedKey(uid));
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveSkipped(uid: string, skipped: Set<string>) {
+  try {
+    localStorage.setItem(skippedKey(uid), JSON.stringify([...skipped]));
+  } catch {
+    // localStorage unavailable — skip persistence silently
+  }
+}
+
 export default function Discovery({ user, profile }: DiscoveryProps) {
+  const navigate = useNavigate();
   const [students, setStudents] = useState<UserProfile[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -21,15 +42,26 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
     level: '',
   });
   const [showFilters, setShowFilters] = useState(false);
-  const [matchModal, setMatchModal] = useState<UserProfile | null>(null);
+  const [matchModal, setMatchModal] = useState<{ profile: UserProfile; matchId: string } | null>(null);
 
   useEffect(() => {
     fetchStudents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters]);
 
-  const fetchStudents = async () => {
+  const fetchStudents = useCallback(async () => {
     setLoading(true);
     try {
+      // Fetch UIDs of profiles the current user already liked
+      const { data: likedData } = await supabase
+        .from('likes')
+        .select('to_uid')
+        .eq('from_uid', user.id);
+
+      const likedUids = new Set((likedData ?? []).map((l: { to_uid: string }) => l.to_uid));
+      const skippedUids = getSkipped(user.id);
+      const excludeUids = new Set([...likedUids, ...skippedUids, user.id]);
+
       let query = supabase
         .from('profiles')
         .select('*')
@@ -46,9 +78,9 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
       const { data, error } = await query;
       if (error) throw error;
 
-      const fetchedStudents = data as UserProfile[];
-      
-      // Use Express backend for smarter matching if no specific filters are applied
+      // Filter out already-seen profiles
+      const fetchedStudents = (data as UserProfile[]).filter(s => !excludeUids.has(s.uid));
+
       if (!filters.department && !filters.level) {
         try {
           const response = await fetch('/api/recommendations', {
@@ -57,8 +89,7 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
             body: JSON.stringify({ userProfile: profile, allStudents: fetchedStudents }),
           });
           if (response.ok) {
-            const recommended = await response.json();
-            setStudents(recommended);
+            setStudents(await response.json());
           } else {
             setStudents(fetchedStudents.sort(() => Math.random() - 0.5));
           }
@@ -69,57 +100,54 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
       } else {
         setStudents(fetchedStudents.sort(() => Math.random() - 0.5));
       }
-      
+
       setCurrentIndex(0);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user.id, filters, profile]);
 
   const handleLike = async (targetUser: UserProfile) => {
     try {
-      // 1. Add like
       const { error: likeError } = await supabase
         .from('likes')
         .insert([{
           from_uid: user.id,
           to_uid: targetUser.uid,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
         }]);
-      
+
       if (likeError) throw likeError;
 
-      // 2. Check for mutual like
-      const { data: mutualLike, error: mutualError } = await supabase
-        .from('likes')
-        .select('*')
-        .eq('from_uid', targetUser.uid)
-        .eq('to_uid', user.id)
-        .single();
+      // Enforce mutual-like check server-side via a SECURITY DEFINER function
+      // This prevents bypassing the validation through direct client-side inserts.
+      const { data: matchId, error: matchError } = await supabase
+        .rpc('create_match_if_mutual', { other_uid: targetUser.uid });
 
-      if (mutualLike) {
-        // It's a match!
-        const { error: matchError } = await supabase
-          .from('matches')
-          .insert([{
-            user_ids: [user.id, targetUser.uid],
-            created_at: new Date().toISOString()
-          }]);
-        
-        if (matchError) throw matchError;
-        setMatchModal(targetUser);
+      if (matchError) {
+        console.error('Match RPC error:', matchError);
+      } else if (matchId) {
+        setMatchModal({ profile: targetUser, matchId: matchId as string });
       }
 
       nextStudent();
     } catch (err) {
       console.error(err);
+      nextStudent();
     }
   };
 
+  const handleSkip = (targetUser: UserProfile) => {
+    const skipped = getSkipped(user.id);
+    skipped.add(targetUser.uid);
+    saveSkipped(user.id, skipped);
+    nextStudent();
+  };
+
   const nextStudent = () => {
-    setCurrentIndex(prev => prev + 1);
+    setCurrentIndex((prev: number) => prev + 1);
   };
 
   const currentStudent = students[currentIndex];
@@ -223,7 +251,7 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
 
                 <div className="flex justify-center gap-6 mt-4">
                   <button
-                    onClick={nextStudent}
+                    onClick={() => handleSkip(currentStudent)}
                     className="w-16 h-16 rounded-full bg-white border-2 border-slate-100 text-slate-400 flex items-center justify-center hover:bg-slate-50 hover:text-slate-600 transition-all shadow-lg"
                   >
                     <X size={32} />
@@ -279,14 +307,25 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
                     <Heart size={24} className="text-orange-600" fill="currentColor" />
                   </div>
                 </div>
-                <img src={matchModal.profile_picture} className="w-24 h-24 rounded-full border-4 border-white shadow-lg -ml-4" />
+                <img src={matchModal.profile.profile_picture} className="w-24 h-24 rounded-full border-4 border-white shadow-lg -ml-4" />
               </div>
               <h2 className="text-3xl font-black text-slate-900 mb-2 italic">It's a Match!</h2>
-              <p className="text-slate-600 mb-8">You and {matchModal.name} have expressed interest in each other.</p>
+              <p className="text-slate-600 mb-8">You and {matchModal.profile.name} have expressed interest in each other.</p>
               <div className="space-y-3">
                 <button
+                  onClick={() => {
+                    const id = matchModal.matchId;
+                    setMatchModal(null);
+                    navigate(`/chat/${id}`);
+                  }}
+                  className="w-full py-3 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition-all flex items-center justify-center gap-2"
+                >
+                  <MessageCircle size={18} />
+                  Send Message
+                </button>
+                <button
                   onClick={() => setMatchModal(null)}
-                  className="w-full py-3 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition-all"
+                  className="w-full py-3 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-all"
                 >
                   Keep Discovering
                 </button>
