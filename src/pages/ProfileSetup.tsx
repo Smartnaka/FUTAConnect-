@@ -30,21 +30,40 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
     if (!file) return;
 
     setPictureError('');
+
+    if (!file.type.startsWith('image/')) {
+      setPictureError('Please select a valid image file.');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setPictureError('Image must be 5MB or smaller.');
+      return;
+    }
+
     setUploadingPicture(true);
     try {
-      const ext = file.name.split('.').pop() || 'jpg';
-      const fileName = `${user.id}-${Date.now()}.${ext}`;
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      const fileName = `${user.id}/avatar.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(fileName, file, { upsert: true });
+        .upload(fileName, file, {
+          upsert: true,
+          contentType: file.type,
+          cacheControl: '3600',
+        });
 
       if (uploadError) throw uploadError;
 
       const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
-      setProfilePicture(data.publicUrl);
-    } catch (err) {
+      setProfilePicture(`${data.publicUrl}?t=${Date.now()}`);
+    } catch (err: any) {
       console.error(err);
-      setPictureError('Failed to upload image. Please try again.');
+      const message =
+        err?.message?.includes('row-level security')
+          ? 'Upload blocked by Supabase policy. Run the updated supabase_schema.sql in your project.'
+          : 'Failed to upload image. Please try again.';
+      setPictureError(message);
     } finally {
       setUploadingPicture(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
