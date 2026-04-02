@@ -40,8 +40,8 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
     if (!file) return;
 
     setPictureError('');
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      setPictureError('Unsupported image type. Use JPG, PNG, WEBP, GIF, HEIC, or HEIF.');
+    if (!file.type.startsWith('image/')) {
+      setPictureError('Please select a valid image file.');
       return;
     }
     if (file.size > 5 * 1024 * 1024) {

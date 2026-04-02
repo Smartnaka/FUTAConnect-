@@ -35,8 +35,8 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
 
     setPictureError('');
 
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      setPictureError('Unsupported image type. Use JPG, PNG, WEBP, GIF, HEIC, or HEIF.');
+    if (!file.type.startsWith('image/')) {
+      setPictureError('Please select a valid image file.');
       return;
     }
 

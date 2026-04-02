@@ -63,7 +63,6 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
     try {
       let excludeUids = new Set<string>([user.id]);
 
-      let existingLiked = new Set<string>();
       if (!includeSeen) {
         // Fetch UIDs of profiles the current user already liked
         const { data: likedData } = await supabase
@@ -71,9 +70,9 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
           .select('to_uid')
           .eq('from_uid', user.id);
 
-        existingLiked = new Set((likedData ?? []).map((l: { to_uid: string }) => l.to_uid));
+        const likedUids = new Set((likedData ?? []).map((l: { to_uid: string }) => l.to_uid));
         const skippedUids = getSkipped(user.id);
-        excludeUids = new Set([...existingLiked, ...skippedUids, user.id]);
+        excludeUids = new Set([...likedUids, ...skippedUids, user.id]);
       }
 
       let query = supabase
@@ -117,7 +116,6 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
 
       setCurrentIndex(0);
       setRecyclingFeed(includeSeen);
-      setLikedUids(existingLiked);
     } catch (err) {
       console.error(err);
     } finally {
@@ -197,12 +195,11 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
   const currentStudent = students[currentIndex];
 
   useEffect(() => {
-    if (viewMode !== 'swipe') return;
     if (!loading && students.length > 0 && currentIndex >= students.length) {
       // Recycle feed when the fresh queue is exhausted so users can keep discovering.
       fetchStudents(true);
     }
-  }, [currentIndex, students.length, loading, fetchStudents, viewMode]);
+  }, [currentIndex, students.length, loading, fetchStudents]);
 
   if (loading) {
     return (
