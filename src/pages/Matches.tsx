@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, Match } from '../types';
 import { Link } from 'react-router-dom';
-import { MessageCircle, Heart } from 'lucide-react';
+import { MessageCircle, Heart, Search } from 'lucide-react';
 import { motion } from 'motion/react';
 import { User } from '@supabase/supabase-js';
 
@@ -11,9 +11,18 @@ interface MatchesProps {
   profile: UserProfile;
 }
 
+function getLastRead(matchId: string): number {
+  try {
+    return parseInt(localStorage.getItem(`futaconnect_lastread_${matchId}`) ?? '0', 10) || 0;
+  } catch {
+    return 0;
+  }
+}
+
 export default function Matches({ user, profile }: MatchesProps) {
   const [matches, setMatches] = useState<(Match & { otherUser: UserProfile })[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     const fetchMatches = async () => {
@@ -75,39 +84,81 @@ export default function Matches({ user, profile }: MatchesProps) {
     );
   }
 
+  const filteredMatches = matches.filter((m) => {
+    const q = search.toLowerCase();
+    return (
+      m.otherUser?.name?.toLowerCase().includes(q) ||
+      m.otherUser?.department?.toLowerCase().includes(q)
+    );
+  });
+
   return (
     <div className="max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold text-slate-900 mb-6">Your Matches</h2>
+      <div className="flex items-center justify-between mb-6 gap-4">
+        <h2 className="text-2xl font-bold text-slate-900 flex-shrink-0">Your Matches</h2>
+        {matches.length > 0 && (
+          <div className="relative flex-1 max-w-xs">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search matches…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-full text-sm outline-none focus:ring-2 focus:ring-orange-500 transition-all"
+            />
+          </div>
+        )}
+      </div>
 
-      {matches.length > 0 ? (
+      {filteredMatches.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {matches.map((match) => (
-            <motion.div
-              key={match.id}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4 hover:shadow-md transition-all"
-            >
-              <img
-                src={match.otherUser.profile_picture}
-                alt={match.otherUser.name}
-                className="w-16 h-16 rounded-full object-cover border-2 border-orange-100"
-                referrerPolicy="no-referrer"
-              />
-              <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-slate-900 truncate">{match.otherUser.name}</h3>
-                <p className="text-xs text-slate-500 truncate">
-                  {match.last_message || match.otherUser.department}
-                </p>
-              </div>
-              <Link
-                to={`/chat/${match.id}`}
-                className="p-2 bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors"
+          {filteredMatches.map((match) => {
+            const unread =
+              !!match.last_message_at &&
+              new Date(match.last_message_at).getTime() > getLastRead(match.id);
+            return (
+              <motion.div
+                key={match.id}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4 hover:shadow-md transition-all"
               >
-                <MessageCircle size={20} />
-              </Link>
-            </motion.div>
-          ))}
+                <div className="relative flex-shrink-0">
+                  <img
+                    src={match.otherUser.profile_picture}
+                    alt={match.otherUser.name}
+                    className="w-16 h-16 rounded-full object-cover border-2 border-orange-100"
+                    referrerPolicy="no-referrer"
+                  />
+                  {unread && (
+                    <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-orange-500 rounded-full border-2 border-white" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className={`font-bold truncate ${unread ? 'text-slate-900' : 'text-slate-800'}`}>
+                    {match.otherUser.name}
+                  </h3>
+                  <p className={`text-xs truncate ${unread ? 'text-slate-600 font-medium' : 'text-slate-500'}`}>
+                    {match.last_message || match.otherUser.department}
+                  </p>
+                </div>
+                <Link
+                  to={`/chat/${match.id}`}
+                  className="relative p-2 bg-orange-50 text-orange-600 rounded-full hover:bg-orange-100 transition-colors flex-shrink-0"
+                >
+                  <MessageCircle size={20} />
+                  {unread && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-orange-500 rounded-full border-2 border-white" />
+                  )}
+                </Link>
+              </motion.div>
+            );
+          })}
+        </div>
+      ) : matches.length > 0 ? (
+        <div className="text-center py-16 bg-white rounded-3xl border border-dashed border-slate-200">
+          <p className="text-slate-500">No matches found for "{search}".</p>
+          <button onClick={() => setSearch('')} className="mt-3 text-orange-600 font-bold text-sm">Clear search</button>
         </div>
       ) : (
         <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-200">

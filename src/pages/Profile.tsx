@@ -22,6 +22,7 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
   const [profile_picture, setProfilePicture] = useState(profile.profile_picture);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [nameError, setNameError] = useState('');
 
   const toggleInterest = (interest: string) => {
     if (selectedInterests.includes(interest)) {
@@ -33,6 +34,11 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (name.trim().length < 2) {
+      setNameError('Name must be at least 2 characters.');
+      return;
+    }
+    setNameError('');
     setLoading(true);
     setSuccess(false);
 
@@ -114,10 +120,12 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
                 <input
                   type="text"
                   required
+                  minLength={2}
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => { setName(e.target.value); setNameError(''); }}
                   className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
                 />
+                {nameError && <p className="text-xs text-red-500 mt-1">{nameError}</p>}
               </div>
 
               <div>

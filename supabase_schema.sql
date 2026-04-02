@@ -55,8 +55,67 @@ CREATE POLICY "Users can insert their own likes." ON likes FOR INSERT WITH CHECK
 -- Matches
 ALTER TABLE matches ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can see their matches." ON matches FOR SELECT USING (auth.uid() = ANY(user_ids));
-CREATE POLICY "Users can insert matches." ON matches FOR INSERT WITH CHECK (auth.uid() = ANY(user_ids));
+-- Insert is restricted to the create_match_if_mutual() function (SECURITY DEFINER).
+-- Direct client inserts are intentionally disallowed to prevent bypassing the mutual-like check.
 CREATE POLICY "Users can update their matches." ON matches FOR UPDATE USING (auth.uid() = ANY(user_ids));
+
+-- Secure server-side function to create a match only when both users have liked each other.
+-- Using SECURITY DEFINER so the function runs as the DB owner and can bypass the restricted
+-- INSERT policy on matches, while still validating the mutual like atomically.
+CREATE OR REPLACE FUNCTION create_match_if_mutual(other_uid UUID)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  current_uid UUID := auth.uid();
+  mutual_exists BOOLEAN;
+  existing_match_id UUID;
+  new_match_id UUID;
+BEGIN
+  IF current_uid IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  IF current_uid = other_uid THEN
+    RAISE EXCEPTION 'Cannot match with yourself';
+  END IF;
+
+  -- Verify the current user has already liked other_uid
+  IF NOT EXISTS (
+    SELECT 1 FROM likes WHERE from_uid = current_uid AND to_uid = other_uid
+  ) THEN
+    RAISE EXCEPTION 'Like from current user to other user does not exist';
+  END IF;
+
+  -- Check for a mutual like
+  SELECT EXISTS(
+    SELECT 1 FROM likes WHERE from_uid = other_uid AND to_uid = current_uid
+  ) INTO mutual_exists;
+
+  IF NOT mutual_exists THEN
+    RETURN NULL;
+  END IF;
+
+  -- Return existing match if one already exists (idempotent)
+  SELECT id INTO existing_match_id
+  FROM matches
+  WHERE user_ids @> ARRAY[current_uid, other_uid]
+  LIMIT 1;
+
+  IF existing_match_id IS NOT NULL THEN
+    RETURN existing_match_id;
+  END IF;
+
+  -- Atomically create the match
+  INSERT INTO matches (user_ids, created_at)
+  VALUES (ARRAY[current_uid, other_uid], NOW())
+  RETURNING id INTO new_match_id;
+
+  RETURN new_match_id;
+END;
+$$;
 
 -- Messages
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
