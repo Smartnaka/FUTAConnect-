@@ -160,6 +160,17 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
     setCurrentIndex((prev: number) => prev + 1);
   };
 
+  const handleCardSwipe = (_: unknown, info: { offset: { x: number } }) => {
+    if (!currentStudent) return;
+    if (info.offset.x > 120) {
+      handleLike(currentStudent);
+      return;
+    }
+    if (info.offset.x < -120) {
+      handleSkip(currentStudent);
+    }
+  };
+
   const currentStudent = students[currentIndex];
 
   if (loading) {
@@ -229,6 +240,10 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
               initial={{ opacity: 0, scale: 0.9, x: 20 }}
               animate={{ opacity: 1, scale: 1, x: 0 }}
               exit={{ opacity: 0, scale: 0.9, x: -20 }}
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={0.2}
+              onDragEnd={handleCardSwipe}
               className="absolute inset-0 bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100 flex flex-col"
             >
               <div className="relative h-2/3">

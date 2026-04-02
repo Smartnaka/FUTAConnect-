@@ -2,11 +2,11 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# FUTAConnect
 
-This contains everything you need to run your app locally.
+FUTAConnect is a campus social and matching app for FUTA students.
 
-View your app in AI Studio: https://ai.studio/apps/0955c034-6777-416b-8f11-ea5e5a4703e7
+This repository contains everything you need to run the app locally.
 
 ## Run Locally
 
