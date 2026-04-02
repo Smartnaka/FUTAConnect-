@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
 import { DEPARTMENTS, LEVELS, INTERESTS } from '../constants';
@@ -20,7 +20,36 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
   const [profile_picture, setProfilePicture] = useState(`https://api.dicebear.com/7.x/avataaars/svg?seed=${user.id}`);
   const [loading, setLoading] = useState(false);
+  const [uploadingPicture, setUploadingPicture] = useState(false);
+  const [pictureError, setPictureError] = useState('');
   const [nameError, setNameError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handlePictureChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setPictureError('');
+    setUploadingPicture(true);
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const fileName = `${user.id}-${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(fileName, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
+      setProfilePicture(data.publicUrl);
+    } catch (err) {
+      console.error(err);
+      setPictureError('Failed to upload image. Please try again.');
+    } finally {
+      setUploadingPicture(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const toggleInterest = (interest: string) => {
     if (selectedInterests.includes(interest)) {
@@ -91,13 +120,24 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
               />
               <button
                 type="button"
-                onClick={() => setProfilePicture(`https://api.dicebear.com/7.x/avataaars/svg?seed=${Math.random()}`)}
-                className="absolute bottom-0 right-0 p-2 bg-orange-600 text-white rounded-full shadow-lg hover:bg-orange-700 transition-all"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingPicture}
+                className="absolute bottom-0 right-0 p-2 bg-orange-600 text-white rounded-full shadow-lg hover:bg-orange-700 transition-all disabled:opacity-50"
               >
                 <Camera size={18} />
               </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePictureChange}
+                className="hidden"
+              />
             </div>
-            <p className="text-xs text-slate-400">Click to shuffle avatar</p>
+            <p className="text-xs text-slate-400">
+              {uploadingPicture ? 'Uploading...' : 'Click to upload profile picture'}
+            </p>
+            {pictureError && <p className="text-xs text-red-500">{pictureError}</p>}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
