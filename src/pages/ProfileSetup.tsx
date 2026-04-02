@@ -35,8 +35,8 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
 
     setPictureError('');
 
-    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
-      setPictureError('Unsupported image type. Use JPG, PNG, WEBP, GIF, HEIC, or HEIF.');
+    if (!file.type.startsWith('image/')) {
+      setPictureError('Please select a valid image file.');
       return;
     }
 
@@ -86,14 +86,6 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
     e.preventDefault();
     const resolvedDepartment = department === '__other__' ? customDepartment.trim() : department;
     if (!resolvedDepartment || !level || selectedInterests.length === 0) return;
-    if (!profile_picture) {
-      setFormError('Profile picture is required.');
-      return;
-    }
-    if (!bio.trim()) {
-      setFormError('Bio is required.');
-      return;
-    }
     if (name.trim().length < 2) {
       setNameError('Name must be at least 2 characters.');
       return;
@@ -268,7 +260,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
 
           <button
             type="submit"
-            disabled={loading || !(department === '__other__' ? customDepartment.trim() : department) || !level || selectedInterests.length === 0 || !profile_picture || !bio.trim()}
+            disabled={loading || !(department === '__other__' ? customDepartment.trim() : department) || !level || selectedInterests.length === 0}
             className="w-full py-4 bg-orange-600 text-white rounded-2xl font-bold text-lg hover:bg-orange-700 transition-all disabled:opacity-50 shadow-lg shadow-orange-100"
           >
             {loading ? 'Saving Profile...' : 'Complete Setup'}
