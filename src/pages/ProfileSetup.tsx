@@ -12,9 +12,12 @@ interface ProfileSetupProps {
   onComplete: (profile: UserProfile) => void;
 }
 
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
+
 export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
   const [name, setName] = useState(user.user_metadata?.full_name || '');
   const [department, setDepartment] = useState('');
+  const [customDepartment, setCustomDepartment] = useState('');
   const [level, setLevel] = useState('');
   const [bio, setBio] = useState('');
   const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
@@ -23,6 +26,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
   const [uploadingPicture, setUploadingPicture] = useState(false);
   const [pictureError, setPictureError] = useState('');
   const [nameError, setNameError] = useState('');
+  const [formError, setFormError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handlePictureChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -30,21 +34,40 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
     if (!file) return;
 
     setPictureError('');
+
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setPictureError('Unsupported image type. Use JPG, PNG, WEBP, GIF, HEIC, or HEIF.');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setPictureError('Image must be 5MB or smaller.');
+      return;
+    }
+
     setUploadingPicture(true);
     try {
-      const ext = file.name.split('.').pop() || 'jpg';
-      const fileName = `${user.id}-${Date.now()}.${ext}`;
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      const fileName = `${user.id}/avatar.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(fileName, file, { upsert: true });
+        .upload(fileName, file, {
+          upsert: true,
+          contentType: file.type,
+          cacheControl: '3600',
+        });
 
       if (uploadError) throw uploadError;
 
       const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
-      setProfilePicture(data.publicUrl);
-    } catch (err) {
+      setProfilePicture(`${data.publicUrl}?t=${Date.now()}`);
+    } catch (err: any) {
       console.error(err);
-      setPictureError('Failed to upload image. Please try again.');
+      const message =
+        err?.message?.includes('row-level security')
+          ? 'Upload blocked by Supabase policy. Run the updated supabase_schema.sql in your project.'
+          : 'Failed to upload image. Please try again.';
+      setPictureError(message);
     } finally {
       setUploadingPicture(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -61,11 +84,13 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!department || !level || selectedInterests.length === 0) return;
+    const resolvedDepartment = department === '__other__' ? customDepartment.trim() : department;
+    if (!resolvedDepartment || !level || selectedInterests.length === 0) return;
     if (name.trim().length < 2) {
       setNameError('Name must be at least 2 characters.');
       return;
     }
+    setFormError('');
     setNameError('');
 
     setLoading(true);
@@ -73,7 +98,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
       uid: user.id,
       name,
       email: user.email || '',
-      department,
+      department: resolvedDepartment,
       level,
       interests: selectedInterests,
       bio,
@@ -85,12 +110,13 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
     try {
       const { error } = await supabase
         .from('profiles')
-        .insert([profileData]);
+        .upsert([profileData], { onConflict: 'uid' });
       
       if (error) throw error;
       onComplete(profileData);
     } catch (err) {
       console.error(err);
+      setFormError('Could not save your profile. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -129,7 +155,7 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,image/heic,image/heif"
                 onChange={handlePictureChange}
                 className="hidden"
               />
@@ -167,7 +193,18 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
                 {DEPARTMENTS.map(dept => (
                   <option key={dept} value={dept}>{dept}</option>
                 ))}
+                <option value="__other__">Other (Type your course)</option>
               </select>
+              {department === '__other__' && (
+                <input
+                  type="text"
+                  required
+                  value={customDepartment}
+                  onChange={(e) => setCustomDepartment(e.target.value)}
+                  className="w-full mt-2 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                  placeholder="Enter your course / department"
+                />
+              )}
             </div>
 
             <div>
@@ -222,11 +259,12 @@ export default function ProfileSetup({ user, onComplete }: ProfileSetupProps) {
 
           <button
             type="submit"
-            disabled={loading || !department || !level || selectedInterests.length === 0}
+            disabled={loading || !(department === '__other__' ? customDepartment.trim() : department) || !level || selectedInterests.length === 0}
             className="w-full py-4 bg-orange-600 text-white rounded-2xl font-bold text-lg hover:bg-orange-700 transition-all disabled:opacity-50 shadow-lg shadow-orange-100"
           >
             {loading ? 'Saving Profile...' : 'Complete Setup'}
           </button>
+          {formError && <p className="text-sm text-red-500 text-center">{formError}</p>}
         </form>
       </motion.div>
     </div>

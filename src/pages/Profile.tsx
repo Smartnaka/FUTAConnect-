@@ -13,9 +13,16 @@ interface ProfileProps {
   onUpdate: (profile: UserProfile) => void;
 }
 
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
+
 export default function Profile({ user, profile, onUpdate }: ProfileProps) {
   const [name, setName] = useState(profile.name);
-  const [department, setDepartment] = useState(profile.department);
+  const [department, setDepartment] = useState(
+    DEPARTMENTS.includes(profile.department) ? profile.department : '__other__'
+  );
+  const [customDepartment, setCustomDepartment] = useState(
+    DEPARTMENTS.includes(profile.department) ? '' : profile.department
+  );
   const [level, setLevel] = useState(profile.level);
   const [bio, setBio] = useState(profile.bio || '');
   const [selectedInterests, setSelectedInterests] = useState<string[]>(profile.interests);
@@ -23,6 +30,7 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
   const [loading, setLoading] = useState(false);
   const [uploadingPicture, setUploadingPicture] = useState(false);
   const [pictureError, setPictureError] = useState('');
+  const [formError, setFormError] = useState('');
   const [success, setSuccess] = useState(false);
   const [nameError, setNameError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -32,21 +40,37 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
     if (!file) return;
 
     setPictureError('');
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setPictureError('Unsupported image type. Use JPG, PNG, WEBP, GIF, HEIC, or HEIF.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setPictureError('Image must be 5MB or smaller.');
+      return;
+    }
     setUploadingPicture(true);
     try {
-      const ext = file.name.split('.').pop() || 'jpg';
-      const fileName = `${user.id}-${Date.now()}.${ext}`;
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      const fileName = `${user.id}/avatar.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from('avatars')
-        .upload(fileName, file, { upsert: true });
+        .upload(fileName, file, {
+          upsert: true,
+          contentType: file.type,
+          cacheControl: '3600',
+        });
 
       if (uploadError) throw uploadError;
 
       const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
-      setProfilePicture(data.publicUrl);
-    } catch (err) {
+      setProfilePicture(`${data.publicUrl}?t=${Date.now()}`);
+    } catch (err: any) {
       console.error(err);
-      setPictureError('Failed to upload image. Please try again.');
+      const message =
+        err?.message?.includes('row-level security')
+          ? 'Upload blocked by Supabase policy. Run the updated supabase_schema.sql in your project.'
+          : 'Failed to upload image. Please try again.';
+      setPictureError(message);
     } finally {
       setUploadingPicture(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -67,6 +91,12 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
       setNameError('Name must be at least 2 characters.');
       return;
     }
+    const resolvedDepartment = department === '__other__' ? customDepartment.trim() : department;
+    if (!resolvedDepartment) {
+      setFormError('Please provide your course/department.');
+      return;
+    }
+    setFormError('');
     setNameError('');
     setLoading(true);
     setSuccess(false);
@@ -74,7 +104,7 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
     const updatedProfile: UserProfile = {
       ...profile,
       name,
-      department,
+      department: resolvedDepartment,
       level,
       interests: selectedInterests,
       bio,
@@ -94,6 +124,7 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
       console.error(err);
+      setFormError('Could not update profile. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -127,7 +158,7 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/jpg,image/png,image/webp,image/gif,image/heic,image/heif"
                 onChange={handlePictureChange}
                 className="hidden"
               />
@@ -178,7 +209,18 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
                   {DEPARTMENTS.map(dept => (
                     <option key={dept} value={dept}>{dept}</option>
                   ))}
+                  <option value="__other__">Other (Type your course)</option>
                 </select>
+                {department === '__other__' && (
+                  <input
+                    type="text"
+                    required
+                    value={customDepartment}
+                    onChange={(e) => setCustomDepartment(e.target.value)}
+                    className="w-full mt-2 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none"
+                    placeholder="Enter your course / department"
+                  />
+                )}
               </div>
 
               <div>
@@ -249,6 +291,7 @@ export default function Profile({ user, profile, onUpdate }: ProfileProps) {
                 </motion.span>
               )}
             </div>
+            {formError && <p className="text-sm text-red-500">{formError}</p>}
           </form>
         </div>
       </motion.div>
