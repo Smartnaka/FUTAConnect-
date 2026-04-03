@@ -190,11 +190,19 @@ export default function Chat({ user, profile }: ChatProps) {
     ]);
 
     try {
-      const { error } = await supabase
+      const { data: insertedMessage, error } = await supabase
         .from('messages')
-        .insert([{ match_id: matchId, sender_uid: user.id, text, created_at: now }]);
+        .insert([{ match_id: matchId, sender_uid: user.id, text, created_at: now }])
+        .select('*')
+        .single();
 
       if (error) throw error;
+
+      if (insertedMessage) {
+        setMessages((prev: Message[]) => prev.map((m: Message) => (
+          m.id === tempId ? (insertedMessage as Message) : m
+        )));
+      }
 
       // Update match's last message preview (best-effort; non-critical)
       supabase
