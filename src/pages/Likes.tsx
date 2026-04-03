@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Heart, MessageCircle } from 'lucide-react';
+import { Heart, MessageCircle, UserPlus } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, Match } from '../types';
@@ -25,10 +25,9 @@ export default function Likes({ user }: LikesProps) {
   const [actioningUid, setActioningUid] = useState<string | null>(null);
   const [matchModal, setMatchModal] = useState<{ name: string; profilePicture: string; matchId: string } | null>(null);
 
-  const handleAcceptInterest = async (like: IncomingLike) => {
+  const handleFollowBack = async (like: IncomingLike) => {
     if (!like.fromUser) return;
     setActioningUid(like.from_uid);
-
     try {
       const { error: likeError } = await supabase
         .from('likes')
@@ -171,17 +170,19 @@ export default function Likes({ user }: LikesProps) {
                 </Link>
               ) : (
                 <button
-                  onClick={() => handleAcceptInterest(like)}
+                  onClick={() => handleFollowBack(like)}
                   disabled={actioningUid === like.from_uid}
-                  className="inline-flex items-center px-3 py-2 bg-orange-50 text-orange-700 rounded-full text-xs font-bold hover:bg-orange-100 transition-all disabled:opacity-60"
+                  className="inline-flex items-center gap-2 px-3 py-2 bg-orange-50 text-orange-700 rounded-full text-xs font-bold hover:bg-orange-100 transition-all disabled:opacity-60"
                 >
-                  {actioningUid === like.from_uid ? 'Accepting request…' : 'Accept request'}
+                  <UserPlus size={14} />
+                  {actioningUid === like.from_uid ? 'Following…' : 'Follow back'}
                 </button>
               )}
             </motion.div>
           ))}
         </div>
       )}
+
 
       {matchModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
@@ -193,7 +194,7 @@ export default function Likes({ user }: LikesProps) {
               referrerPolicy="no-referrer"
             />
             <h2 className="text-3xl font-black text-slate-900 mb-2">It's a Match!</h2>
-            <p className="text-slate-500 mb-8">You accepted {matchModal.name}'s request and you're now a match.</p>
+            <p className="text-slate-500 mb-8">You and {matchModal.name} are now mutually interested.</p>
 
             <button
               onClick={() => {
@@ -215,6 +216,7 @@ export default function Likes({ user }: LikesProps) {
           </div>
         </div>
       )}
+
     </div>
   );
 }
