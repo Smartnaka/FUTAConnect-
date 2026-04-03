@@ -13,6 +13,20 @@ interface DiscoveryProps {
   profile: UserProfile;
 }
 
+const skippedKey = (uid: string) => `discover:skipped:${uid}`;
+
+const getSkipped = (uid: string) => {
+  try {
+    return new Set<string>(JSON.parse(localStorage.getItem(skippedKey(uid)) || '[]'));
+  } catch {
+    return new Set<string>();
+  }
+};
+
+const saveSkipped = (uid: string, skipped: Set<string>) => {
+  localStorage.setItem(skippedKey(uid), JSON.stringify(Array.from(skipped)));
+};
+
 export default function Discovery({ user, profile }: DiscoveryProps) {
   const navigate = useNavigate();
   const [students, setStudents] = useState<UserProfile[]>([]);
@@ -28,65 +42,59 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
   const [matchModal, setMatchModal] = useState<{ profile: UserProfile; matchId: string } | null>(null);
   const [recyclingFeed, setRecyclingFeed] = useState(false);
 
-  useEffect(() => {
-    fetchStudents();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters]);
-
   const fetchStudents = useCallback(async (includeSeen = false) => {
     setLoading(true);
-    try {      let excludeUids = new Set<string>([user.id]);
+    try {
+      let excludeUids = new Set<string>([user.id]);
+
+      const { data: likedData } = await supabase
+        .from('likes')
+        .select('to_uid')
+        .eq('from_uid', user.id);
+
+      const existingLikes = new Set((likedData ?? []).map((l: { to_uid: string }) => l.to_uid));
+      setLikedUids(existingLikes);
 
       if (!includeSeen) {
-        // Fetch UIDs of profiles the current user already liked
-        const { data: likedData } = await supabase
-          .from('likes')
-          .select('to_uid')
-          .eq('from_uid', user.id);
-
-        const likedUids = new Set((likedData ?? []).map((l: { to_uid: string }) => l.to_uid));
         const skippedUids = getSkipped(user.id);
-        excludeUids = new Set([...likedUids, ...skippedUids, user.id]);
+        excludeUids = new Set([...existingLikes, ...skippedUids, user.id]);
       }
 
       let query = supabase
         .from('profiles')
         .select('*')
         .neq('uid', user.id)
-        .limit(100);
+        .limit(120);
 
-      if (filters.department) {
-        query = query.eq('department', filters.department);
-      }
-      if (filters.level) {
-        query = query.eq('level', filters.level);
-      }
+      if (filters.department) query = query.eq('department', filters.department);
+      if (filters.level) query = query.eq('level', filters.level);
 
       const { data, error } = await query;
       if (error) throw error;
 
-      const fetchedStudents = (data as UserProfile[]) || [];
-      setStudents(fetchedStudents.sort(() => Math.random() - 0.5));
-      setDismissedUids(new Set());
+      const fetchedStudents = ((data as UserProfile[]) || []).filter((student) => !excludeUids.has(student.uid));
+      const shuffled = [...fetchedStudents].sort(() => Math.random() - 0.5);
 
-      if (!filters.department && !filters.level) {
+      if (!filters.department && !filters.level && fetchedStudents.length > 0) {
         try {
           const response = await fetch('/api/recommendations', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userProfile: profile, allStudents: fetchedStudents }),
           });
+
           if (response.ok) {
-            setStudents(await response.json());
+            const ranked = (await response.json()) as UserProfile[];
+            setStudents(ranked.filter((student) => !excludeUids.has(student.uid)));
           } else {
-            setStudents(fetchedStudents.sort(() => Math.random() - 0.5));
+            setStudents(shuffled);
           }
         } catch (apiErr) {
           console.error('API Error:', apiErr);
-          setStudents(fetchedStudents.sort(() => Math.random() - 0.5));
+          setStudents(shuffled);
         }
       } else {
-        setStudents(fetchedStudents.sort(() => Math.random() - 0.5));
+        setStudents(shuffled);
       }
 
       setCurrentIndex(0);
@@ -96,21 +104,29 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
     } finally {
       setLoading(false);
     }
-  }, [user.id, filters]);
+  }, [user.id, filters, profile]);
+
+  useEffect(() => {
+    fetchStudents();
+  }, [fetchStudents]);
 
   const handleLike = async (targetUser: UserProfile) => {
     if (likedUids.has(targetUser.uid)) {
-      if (viewMode === 'swipe') nextStudent();
+      if (viewMode === 'swipe') setCurrentIndex((prev) => prev + 1);
       return;
     }
+
     try {
       const { error: likeError } = await supabase
         .from('likes')
-        .insert([{
-          from_uid: user.id,
-          to_uid: targetUser.uid,
-          created_at: new Date().toISOString(),
-        }]);
+        .upsert(
+          [{
+            from_uid: user.id,
+            to_uid: targetUser.uid,
+            created_at: new Date().toISOString(),
+          }],
+          { onConflict: 'from_uid,to_uid' }
+        );
 
       if (likeError) throw likeError;
       setLikedUids((prev) => new Set([...prev, targetUser.uid]));
@@ -123,15 +139,10 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
       } else if (matchId) {
         setMatchModal({ profile: targetUser, matchId: matchId as string });
       }
-
-      if (viewMode === 'swipe') {
-        nextStudent();
-      }
     } catch (err) {
       console.error(err);
-      if (viewMode === 'swipe') {
-        nextStudent();
-      }
+    } finally {
+      if (viewMode === 'swipe') setCurrentIndex((prev) => prev + 1);
     }
   };
 
@@ -139,33 +150,25 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
     const skipped = getSkipped(user.id);
     skipped.add(targetUser.uid);
     saveSkipped(user.id, skipped);
+
     if (viewMode === 'swipe') {
-      nextStudent();
+      setCurrentIndex((prev) => prev + 1);
       return;
     }
-    setStudents((prev) => prev.filter((s) => s.uid !== targetUser.uid));
-  };
 
-  const nextStudent = () => {
-    setCurrentIndex((prev: number) => prev + 1);
+    setStudents((prev) => prev.filter((s) => s.uid !== targetUser.uid));
   };
 
   const handleCardSwipe = (_: unknown, info: { offset: { x: number } }) => {
     if (!currentStudent) return;
-    if (info.offset.x > 120) {
-      handleLike(currentStudent);
-      return;
-    }
-    if (info.offset.x < -120) {
-      handleSkip(currentStudent);
-    }
+    if (info.offset.x > 120) return void handleLike(currentStudent);
+    if (info.offset.x < -120) return void handleSkip(currentStudent);
   };
 
   const currentStudent = students[currentIndex];
 
   useEffect(() => {
     if (!loading && students.length > 0 && currentIndex >= students.length) {
-      // Recycle feed when the fresh queue is exhausted so users can keep discovering.
       fetchStudents(true);
     }
   }, [currentIndex, students.length, loading, fetchStudents]);
@@ -180,7 +183,6 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
 
   return (
     <div className="max-w-2xl mx-auto">
-      {/* Header & Filters */}
       <div className="flex justify-between items-center mb-6">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Discover</h2>
@@ -238,7 +240,7 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-sm outline-none"
               >
                 <option value="">All Departments</option>
-                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
             <div>
@@ -249,7 +251,7 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-sm outline-none"
               >
                 <option value="">All Levels</option>
-                {LEVELS.map(l => <option key={l} value={l}>{l}</option>)}
+                {LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
               </select>
             </div>
           </motion.div>
@@ -257,30 +259,30 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
       </AnimatePresence>
 
       {viewMode === 'feed' ? (
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {students.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-3xl border border-dashed border-slate-300">
+            <div className="text-center py-12 bg-white rounded-3xl border border-dashed border-slate-300 sm:col-span-2">
               <h3 className="text-lg font-bold text-slate-900">No students right now</h3>
               <button onClick={() => fetchStudents(true)} className="mt-3 text-orange-600 font-bold">Refresh people</button>
             </div>
           ) : students.map((student) => {
             const liked = likedUids.has(student.uid);
             return (
-              <div key={student.uid} className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
-                <img src={student.profile_picture} alt={student.name} className="w-full h-64 object-cover" referrerPolicy="no-referrer" />
-                <div className="p-5">
-                  <h3 className="text-xl font-bold text-slate-900">{student.name}</h3>
-                  <p className="text-sm text-slate-500 mt-1">{student.department} • {student.level}L</p>
-                  <p className="text-slate-600 text-sm mt-3">"{student.bio || 'No bio yet.'}"</p>
-                  <div className="flex flex-wrap gap-2 mt-3">
-                    {student.interests.slice(0, 5).map((i) => (
-                      <span key={i} className="px-2 py-1 bg-orange-50 text-orange-600 text-xs font-bold rounded-md uppercase tracking-wider">{i}</span>
+              <div key={student.uid} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <img src={student.profile_picture} alt={student.name} className="w-full h-40 object-cover" referrerPolicy="no-referrer" />
+                <div className="p-4">
+                  <h3 className="text-lg font-bold text-slate-900 truncate">{student.name}</h3>
+                  <p className="text-xs text-slate-500 mt-1">{student.department} • {student.level}L</p>
+                  <p className="text-slate-600 text-sm mt-2 line-clamp-2">"{student.bio || 'No bio yet.'}"</p>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {(student.interests || []).slice(0, 3).map((i) => (
+                      <span key={i} className="px-2 py-1 bg-orange-50 text-orange-600 text-[10px] font-bold rounded-md uppercase tracking-wider">{i}</span>
                     ))}
                   </div>
-                  <div className="flex justify-end gap-3 mt-4">
+                  <div className="flex justify-end gap-2 mt-3">
                     <button
                       onClick={() => handleSkip(student)}
-                      className="px-4 py-2 rounded-full border border-slate-200 text-slate-600 font-semibold hover:bg-slate-50"
+                      className="px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50"
                     >
                       Skip
                     </button>
@@ -288,7 +290,7 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
                       onClick={() => handleLike(student)}
                       disabled={liked}
                       className={cn(
-                        'px-4 py-2 rounded-full font-bold transition-all',
+                        'px-3 py-1.5 rounded-full text-sm font-bold transition-all',
                         liked ? 'bg-orange-100 text-orange-600 cursor-not-allowed' : 'bg-orange-600 text-white hover:bg-orange-700'
                       )}
                     >
@@ -301,36 +303,35 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
           })}
         </div>
       ) : (
-      <div className="relative h-[600px] w-full">
-        <AnimatePresence mode="wait">
-          {currentStudent ? (
-            <motion.div
-              key={currentStudent.uid}
-              initial={{ opacity: 0, scale: 0.9, x: 20 }}
-              animate={{ opacity: 1, scale: 1, x: 0 }}
-              exit={{ opacity: 0, scale: 0.9, x: -20 }}
-              drag="x"
-              dragConstraints={{ left: 0, right: 0 }}
-              dragElastic={0.2}
-              onDragEnd={handleCardSwipe}
-              className="absolute inset-0 bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100 flex flex-col"
-            >
-              <div className="relative h-2/3">
+        <div className="relative h-[560px] w-full">
+          <AnimatePresence mode="wait">
+            {currentStudent ? (
+              <motion.div
+                key={currentStudent.uid}
+                initial={{ opacity: 0, scale: 0.9, x: 20 }}
+                animate={{ opacity: 1, scale: 1, x: 0 }}
+                exit={{ opacity: 0, scale: 0.9, x: -20 }}
+                drag="x"
+                dragConstraints={{ left: 0, right: 0 }}
+                dragElastic={0.2}
+                onDragEnd={handleCardSwipe}
+                className="absolute inset-0 bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-100 flex flex-col"
+              >
                 <img
-                  src={student.profile_picture}
-                  alt={student.name}
-                  className="w-full h-64 object-cover"
+                  src={currentStudent.profile_picture}
+                  alt={currentStudent.name}
+                  className="w-full h-72 object-cover"
                   referrerPolicy="no-referrer"
                 />
-                <div className="p-5">
-                  <h3 className="text-xl font-bold text-slate-900">{student.name}</h3>
+                <div className="p-5 flex-1">
+                  <h3 className="text-xl font-bold text-slate-900">{currentStudent.name}</h3>
                   <p className="text-sm text-slate-500 mt-1 flex items-center gap-2">
-                    <GraduationCap size={14} /> {student.department} • {student.level}L
+                    <GraduationCap size={14} /> {currentStudent.department} • {currentStudent.level}L
                   </p>
-                  <p className="text-slate-600 text-sm mt-3 italic">"{student.bio || 'No bio yet.'}"</p>
+                  <p className="text-slate-600 text-sm mt-3 italic line-clamp-3">"{currentStudent.bio || 'No bio yet.'}"</p>
 
                   <div className="flex flex-wrap gap-2 mt-3">
-                    {student.interests.slice(0, 5).map((i) => (
+                    {(currentStudent.interests || []).slice(0, 5).map((i) => (
                       <span key={i} className="px-2 py-1 bg-orange-50 text-orange-600 text-xs font-bold rounded-md uppercase tracking-wider">
                         {i}
                       </span>
@@ -339,48 +340,46 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
 
                   <div className="flex justify-end gap-3 mt-4">
                     <button
-                      onClick={() => handleDismiss(student)}
+                      onClick={() => handleSkip(currentStudent)}
                       className="px-4 py-2 rounded-full border border-slate-200 text-slate-600 font-semibold hover:bg-slate-50 inline-flex items-center gap-2"
                     >
                       <X size={16} /> Hide
                     </button>
                     <button
-                      onClick={() => handleLike(student)}
-                      disabled={liked}
+                      onClick={() => handleLike(currentStudent)}
+                      disabled={likedUids.has(currentStudent.uid)}
                       className={cn(
                         'px-4 py-2 rounded-full font-bold transition-all inline-flex items-center gap-2',
-                        liked ? 'bg-orange-100 text-orange-600 cursor-not-allowed' : 'bg-orange-600 text-white hover:bg-orange-700'
+                        likedUids.has(currentStudent.uid) ? 'bg-orange-100 text-orange-600 cursor-not-allowed' : 'bg-orange-600 text-white hover:bg-orange-700'
                       )}
                     >
-                      <Heart size={16} fill="currentColor" /> {liked ? 'Liked' : 'Interested'}
+                      <Heart size={16} fill="currentColor" /> {likedUids.has(currentStudent.uid) ? 'Liked' : 'Interested'}
                     </button>
                   </div>
                 </div>
+              </motion.div>
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 bg-white rounded-3xl border border-dashed border-slate-300">
+                <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center text-slate-300 mb-4">
+                  <Search size={40} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900">No more students found</h3>
+                <p className="text-slate-500 mt-2">Try adjusting your filters to find more campus connections.</p>
+                <button
+                  onClick={() => {
+                    setFilters({ department: '', level: '' });
+                    fetchStudents();
+                  }}
+                  className="mt-6 text-orange-600 font-bold"
+                >
+                  Reset Filters
+                </button>
               </div>
-            </motion.div>
-          ) : (
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8 bg-white rounded-3xl border border-dashed border-slate-300">
-              <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center text-slate-300 mb-4">
-                <Search size={40} />
-              </div>
-              <h3 className="text-xl font-bold text-slate-900">No more students found</h3>
-              <p className="text-slate-500 mt-2">Try adjusting your filters to find more campus connections.</p>
-              <button
-                onClick={() => {
-                  setFilters({ department: '', level: '' });
-                  fetchStudents();
-                }}
-                className="mt-6 text-orange-600 font-bold"
-              >
-                Reset Filters
-              </button>
-            </div>
-          )}
-        </AnimatePresence>
-      </div>
+            )}
+          </AnimatePresence>
+        </div>
       )}
 
-      {/* Match Modal */}
       <AnimatePresence>
         {matchModal && (
           <motion.div
