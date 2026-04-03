@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Heart, MessageCircle, UserPlus } from 'lucide-react';
 import { motion } from 'motion/react';
 import { supabase } from '../lib/supabase';
@@ -54,40 +54,6 @@ export default function Likes({ user }: LikesProps) {
           profilePicture: like.fromUser.profile_picture,
           matchId: matchId as string,
         });
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setActioningUid(null);
-    }
-  };
-
-  const [actioningUid, setActioningUid] = useState<string | null>(null);
-
-  const handleFollowBack = async (like: IncomingLike) => {
-    if (!like.fromUser) return;
-    setActioningUid(like.from_uid);
-    try {
-      const { error: likeError } = await supabase
-        .from('likes')
-        .upsert(
-          [{
-            from_uid: user.id,
-            to_uid: like.from_uid,
-            created_at: new Date().toISOString(),
-          }],
-          { onConflict: 'from_uid,to_uid' }
-        );
-
-      if (likeError) throw likeError;
-
-      const { data: matchId, error: matchError } = await supabase
-        .rpc('create_match_if_mutual', { other_uid: like.from_uid });
-
-      if (matchError) throw matchError;
-
-      if (matchId) {
-        setLikes((prev) => prev.map((item) => item.id === like.id ? { ...item, matchId: matchId as string } : item));
       }
     } catch (err) {
       console.error(err);
