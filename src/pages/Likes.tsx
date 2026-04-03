@@ -25,7 +25,7 @@ export default function Likes({ user }: LikesProps) {
   const [actioningUid, setActioningUid] = useState<string | null>(null);
   const [matchModal, setMatchModal] = useState<{ name: string; profilePicture: string; matchId: string } | null>(null);
 
-  const handleAcceptInterest = async (like: IncomingLike) => {
+  const handleFollowBack = async (like: IncomingLike) => {
     if (!like.fromUser) return;
     setActioningUid(like.from_uid);
     try {
