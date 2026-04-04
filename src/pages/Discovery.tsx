@@ -43,6 +43,7 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
   const [showFilters, setShowFilters] = useState(false);
   const [matchModal, setMatchModal] = useState<{ profile: UserProfile; matchId: string } | null>(null);
   const [recyclingFeed, setRecyclingFeed] = useState(false);
+  const [actioningUid, setActioningUid] = useState<string | null>(null);
 
   useEffect(() => { fetchStudents(); }, [filters]); // eslint-disable-line
 
@@ -103,10 +104,12 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
   }, [currentIndex, students.length, loading, fetchStudents]);
 
   const handleLike = async (targetUser: UserProfile) => {
+    if (actioningUid === targetUser.uid) return;
     if (likedUids.has(targetUser.uid)) {
-      if (viewMode === 'swipe') setCurrentIndex(i => i + 1);
+      await handleUnlike(targetUser);
       return;
     }
+    setActioningUid(targetUser.uid);
     // Optimistic — mark instantly so double-taps are ignored
     setLikedUids(prev => new Set([...prev, targetUser.uid]));
 
@@ -124,6 +127,35 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
     } catch (err) {
       console.error(err);
       setLikedUids(prev => { const n = new Set(prev); n.delete(targetUser.uid); return n; });
+    } finally {
+      setActioningUid(null);
+    }
+
+    if (viewMode === 'swipe') setCurrentIndex(i => i + 1);
+  };
+
+  const handleUnlike = async (targetUser: UserProfile) => {
+    if (actioningUid === targetUser.uid || !likedUids.has(targetUser.uid)) return;
+    setActioningUid(targetUser.uid);
+    setLikedUids(prev => {
+      const next = new Set(prev);
+      next.delete(targetUser.uid);
+      return next;
+    });
+
+    try {
+      const { error } = await supabase
+        .from('likes')
+        .delete()
+        .eq('from_uid', user.id)
+        .eq('to_uid', targetUser.uid);
+
+      if (error) throw error;
+    } catch (err) {
+      console.error(err);
+      setLikedUids(prev => new Set([...prev, targetUser.uid]));
+    } finally {
+      setActioningUid(null);
     }
 
     if (viewMode === 'swipe') setCurrentIndex(i => i + 1);
@@ -270,17 +302,17 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
                         Skip
                       </button>
                       <button
-                        onClick={() => handleLike(student)}
-                        disabled={liked}
+                        onClick={() => (liked ? handleUnlike(student) : handleLike(student))}
+                        disabled={actioningUid === student.uid}
                         className={cn(
                           'flex-1 py-1.5 rounded-full text-xs font-bold transition-all flex items-center justify-center gap-1',
                           liked
-                            ? 'bg-orange-100 text-orange-500 cursor-not-allowed'
+                            ? 'bg-orange-100 text-orange-600 hover:bg-orange-200'
                             : 'bg-orange-600 text-white hover:bg-orange-700'
                         )}
                       >
                         <Heart size={11} fill={liked ? 'currentColor' : 'none'} />
-                        {liked ? 'Liked' : 'Like'}
+                        {actioningUid === student.uid ? 'Please wait...' : liked ? 'Interested' : 'Interest'}
                       </button>
                     </div>
                   </div>
@@ -353,14 +385,21 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
                       </button>
                       <button
                         onClick={() => handleLike(currentStudent)}
-                        className="w-14 h-14 rounded-full bg-orange-600 text-white flex items-center justify-center hover:bg-orange-700 transition-all shadow-lg shadow-orange-200"
-                        aria-label="Like"
+                        disabled={actioningUid === currentStudent.uid}
+                        className={cn(
+                          "w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg",
+                          likedUids.has(currentStudent.uid)
+                            ? "bg-orange-100 text-orange-600 hover:bg-orange-200 shadow-orange-100"
+                            : "bg-orange-600 text-white hover:bg-orange-700 shadow-orange-200",
+                          actioningUid === currentStudent.uid && "opacity-70"
+                        )}
+                        aria-label={likedUids.has(currentStudent.uid) ? 'Interested' : 'Interest'}
                       >
-                        <Heart size={26} fill="currentColor" />
+                        <Heart size={26} fill={likedUids.has(currentStudent.uid) ? 'currentColor' : 'none'} />
                       </button>
                     </div>
                     <p className="text-center text-[10px] text-slate-300 mt-2 select-none">
-                      Swipe right to like · left to skip
+                      Swipe right to show interest · left to skip
                     </p>
                   </div>
                 </div>
@@ -391,7 +430,7 @@ export default function Discovery({ user, profile }: DiscoveryProps) {
                 <img src={matchModal.profile.profile_picture} className="w-20 h-20 rounded-full border-4 border-white shadow-lg object-cover object-top relative z-10" draggable={false} />
               </div>
               <h2 className="text-2xl font-black text-slate-900 mb-1">It's a Match!</h2>
-              <p className="text-slate-500 text-sm mb-6">You and {matchModal.profile.name} liked each other.</p>
+              <p className="text-slate-500 text-sm mb-6">You and {matchModal.profile.name} are interested in each other.</p>
               <button
                 onClick={() => { const id = matchModal.matchId; setMatchModal(null); navigate(`/chat/${id}`); }}
                 className="w-full py-3 bg-orange-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-orange-700 transition-all"
