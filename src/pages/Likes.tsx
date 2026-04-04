@@ -5,6 +5,7 @@ import { motion } from 'motion/react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, Match } from '../types';
 import { User } from '@supabase/supabase-js';
+import { UI_TERMS } from '../constants';
 
 interface LikesProps {
   user: User;
@@ -77,24 +78,30 @@ export default function Likes({ user }: LikesProps) {
         return;
       }
 
-      const enriched = await Promise.all((data ?? []).map(async (like) => {
-        const { data: fromUser } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('uid', like.from_uid)
-          .single();
+      const incomingLikes = (data ?? []) as IncomingLike[];
+      const fromUids = [...new Set(incomingLikes.map((like) => like.from_uid))];
 
-        const { data: matchRows } = await supabase
-          .from('matches')
-          .select('id')
-          .contains('user_ids', [user.id, like.from_uid])
-          .limit(1);
+      const [{ data: profileRows }, { data: matchRows }] = await Promise.all([
+        fromUids.length
+          ? supabase.from('profiles').select('*').in('uid', fromUids)
+          : Promise.resolve({ data: [] as UserProfile[] }),
+        supabase.from('matches').select('id,user_ids').contains('user_ids', [user.id]),
+      ]);
 
-        return {
-          ...like,
-          fromUser: (fromUser as UserProfile | null) ?? null,
-          matchId: (matchRows as Pick<Match, 'id'>[] | null)?.[0]?.id ?? null,
-        } as IncomingLike;
+      const profileByUid = new Map(
+        ((profileRows ?? []) as UserProfile[]).map((row) => [row.uid, row] as const)
+      );
+
+      const matchIdByOtherUid = new Map<string, string>();
+      ((matchRows ?? []) as Pick<Match, 'id' | 'user_ids'>[]).forEach((m) => {
+        const otherUid = m.user_ids.find((id) => id !== user.id);
+        if (otherUid) matchIdByOtherUid.set(otherUid, m.id);
+      });
+
+      const enriched = incomingLikes.map((like) => ({
+        ...like,
+        fromUser: profileByUid.get(like.from_uid) ?? null,
+        matchId: matchIdByOtherUid.get(like.from_uid) ?? null,
       }));
 
       setLikes(enriched);
@@ -125,7 +132,7 @@ export default function Likes({ user }: LikesProps) {
     <div className="max-w-2xl mx-auto">
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-slate-900">People Interested In You</h2>
-        <p className="text-slate-500 text-sm">See who liked your profile and jump into chat when it becomes mutual.</p>
+        <p className="text-slate-500 text-sm">See who showed interest in your profile and jump into chat when it becomes mutual.</p>
       </div>
 
       {likes.length === 0 ? (
@@ -133,8 +140,8 @@ export default function Likes({ user }: LikesProps) {
           <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center text-slate-300 mx-auto mb-4">
             <Heart size={32} />
           </div>
-          <h3 className="text-lg font-bold text-slate-900">No likes yet</h3>
-          <p className="text-slate-500 mt-1">When someone likes you, they will appear here.</p>
+          <h3 className="text-lg font-bold text-slate-900">No interests yet</h3>
+          <p className="text-slate-500 mt-1">When someone is interested in you, they will appear here.</p>
           <Link to="/discover" className="mt-6 inline-block px-6 py-2 bg-orange-600 text-white rounded-full font-bold hover:bg-orange-700 transition-all">
             Go to Discover
           </Link>
@@ -175,7 +182,7 @@ export default function Likes({ user }: LikesProps) {
                   className="inline-flex items-center gap-2 px-3 py-2 bg-orange-50 text-orange-700 rounded-full text-xs font-bold hover:bg-orange-100 transition-all disabled:opacity-60"
                 >
                   <UserPlus size={14} />
-                  {actioningUid === like.from_uid ? 'Following…' : 'Follow back'}
+                  {actioningUid === like.from_uid ? `${UI_TERMS.interestPast}…` : `${UI_TERMS.interestSingular} back`}
                 </button>
               )}
             </motion.div>

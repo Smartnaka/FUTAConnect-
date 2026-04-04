@@ -30,21 +30,30 @@ export default function Matches({ user, profile }: MatchesProps) {
         return;
       }
 
-      const matchData = await Promise.all(
-        (data as Match[]).map(async (match) => {
-          const otherUid = match.user_ids.find(id => id !== user.id);
-          const { data: otherUser } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('uid', otherUid)
-            .single();
-          
-          return {
-            ...match,
-            otherUser: otherUser as UserProfile
-          };
-        })
+      const matchesRows = (data as Match[]) ?? [];
+      const otherUids = [...new Set(
+        matchesRows
+          .map((match) => match.user_ids.find(id => id !== user.id))
+          .filter(Boolean) as string[]
+      )];
+
+      const { data: profilesData } = otherUids.length
+        ? await supabase.from('profiles').select('*').in('uid', otherUids)
+        : { data: [] as UserProfile[] };
+
+      const profileByUid = new Map(
+        ((profilesData ?? []) as UserProfile[]).map((p) => [p.uid, p] as const)
       );
+
+      const matchData = matchesRows
+        .map((match) => {
+          const otherUid = match.user_ids.find(id => id !== user.id);
+          if (!otherUid) return null;
+          const otherUser = profileByUid.get(otherUid);
+          if (!otherUser) return null;
+          return { ...match, otherUser };
+        })
+        .filter(Boolean) as (Match & { otherUser: UserProfile })[];
 
       setMatches(matchData.sort((a, b) => {
         const aTime = a.last_message_at || a.created_at || '';

@@ -17,6 +17,8 @@ interface ChatProps {
   profile: UserProfile;
 }
 
+const MESSAGE_PAGE_SIZE = 40;
+
 export default function Chat({ user, profile }: ChatProps) {
   const { matchId } = useParams();
   const navigate = useNavigate();
@@ -28,13 +30,21 @@ export default function Chat({ user, profile }: ChatProps) {
   const [otherUser, setOtherUser] = useState<UserProfile | null>(null);
   const [inputText, setInputText] = useState('');
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   // On mobile, show the sidebar when no match is selected, show the chat otherwise
   const [showSidebar, setShowSidebar] = useState(!matchId);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const suppressAutoScrollRef = useRef(false);
 
   useEffect(() => {
+    if (suppressAutoScrollRef.current) {
+      suppressAutoScrollRef.current = false;
+      return;
+    }
     scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
@@ -93,6 +103,7 @@ export default function Chat({ user, profile }: ChatProps) {
       setOtherUser(null);
       setMatch(null);
       setShowSidebar(true);
+      setHasMoreMessages(false);
       return;
     }
 
@@ -127,11 +138,13 @@ export default function Chat({ user, profile }: ChatProps) {
         .from('messages')
         .select('*')
         .eq('match_id', matchId)
-        .order('created_at', { ascending: true })
-        .limit(100);
+        .order('created_at', { ascending: false })
+        .limit(MESSAGE_PAGE_SIZE);
 
       if (data) {
-        setMessages(data as Message[]);
+        const ordered = [...(data as Message[])].reverse();
+        setMessages(ordered);
+        setHasMoreMessages((data as Message[]).length === MESSAGE_PAGE_SIZE);
       }
     };
 
@@ -172,6 +185,61 @@ export default function Chat({ user, profile }: ChatProps) {
     return () => { subscription.unsubscribe(); };
   }, [matchId, user.id]);
 
+  const loadOlderMessages = useCallback(async () => {
+    if (!matchId || loadingMoreMessages || !hasMoreMessages || messages.length === 0) return;
+    const oldestMessageTime = messages[0]?.created_at;
+    if (!oldestMessageTime) return;
+
+    setLoadingMoreMessages(true);
+    const container = messagesContainerRef.current;
+    const previousScrollHeight = container?.scrollHeight ?? 0;
+    const previousScrollTop = container?.scrollTop ?? 0;
+
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('match_id', matchId)
+        .lt('created_at', oldestMessageTime)
+        .order('created_at', { ascending: false })
+        .limit(MESSAGE_PAGE_SIZE);
+
+      if (error) throw error;
+
+      const older = [...((data ?? []) as Message[])].reverse();
+      if (older.length === 0) {
+        setHasMoreMessages(false);
+        return;
+      }
+
+      suppressAutoScrollRef.current = true;
+      setMessages((prev: Message[]) => {
+        const existing = new Set(prev.map((m) => m.id));
+        const uniqueOlder = older.filter((m) => !existing.has(m.id));
+        return [...uniqueOlder, ...prev];
+      });
+      setHasMoreMessages(older.length === MESSAGE_PAGE_SIZE);
+
+      requestAnimationFrame(() => {
+        if (!container) return;
+        const newScrollHeight = container.scrollHeight;
+        container.scrollTop = newScrollHeight - previousScrollHeight + previousScrollTop;
+      });
+    } catch (err) {
+      console.error('Failed to load older messages:', err);
+    } finally {
+      setLoadingMoreMessages(false);
+    }
+  }, [matchId, messages, loadingMoreMessages, hasMoreMessages]);
+
+  const handleMessagesScroll = () => {
+    const container = messagesContainerRef.current;
+    if (!container || loadingMoreMessages || !hasMoreMessages) return;
+    if (container.scrollTop <= 40) {
+      loadOlderMessages();
+    }
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputText.trim() || !matchId) return;
@@ -190,11 +258,19 @@ export default function Chat({ user, profile }: ChatProps) {
     ]);
 
     try {
-      const { error } = await supabase
+      const { data: insertedMessage, error } = await supabase
         .from('messages')
-        .insert([{ match_id: matchId, sender_uid: user.id, text, created_at: now }]);
+        .insert([{ match_id: matchId, sender_uid: user.id, text, created_at: now }])
+        .select('*')
+        .single();
 
       if (error) throw error;
+
+      if (insertedMessage) {
+        setMessages((prev: Message[]) => prev.map((m: Message) => (
+          m.id === tempId ? (insertedMessage as Message) : m
+        )));
+      }
 
       // Update match's last message preview (best-effort; non-critical)
       supabase
@@ -352,7 +428,16 @@ export default function Chat({ user, profile }: ChatProps) {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
+        <div
+          ref={messagesContainerRef}
+          onScroll={handleMessagesScroll}
+          className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50"
+        >
+          {hasMoreMessages && (
+            <div className="text-center text-[11px] text-slate-400">
+              {loadingMoreMessages ? 'Loading older messages…' : 'Scroll up to load older messages'}
+            </div>
+          )}
           {messages.map((msg: Message) => {
             const isMe = msg.sender_uid === user.id;
             const isPending = String(msg.id).startsWith('temp_');

@@ -52,3 +52,10 @@ export const INTERESTS = [
   'Entrepreneurship', 'Volunteering', 'Fashion', 'Writing', 'Public Speaking',
   'Research', 'Networking', 'Startups', 'AI', 'Blockchain', 'Web3'
 ];
+
+export const UI_TERMS = {
+  interestSingular: 'Interest',
+  interestPast: 'Interested',
+  incomingInterestPlural: 'interests',
+  likesRoute: '/likes',
+} as const;
