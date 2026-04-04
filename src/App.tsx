@@ -31,6 +31,7 @@ import Chat from './pages/Chat';
 import Profile from './pages/Profile';
 import ProfileSetup from './pages/ProfileSetup';
 import Likes from './pages/Likes';
+import { UI_TERMS } from './constants';
 
 function Layout({ children, user, profile }: { children: React.ReactNode, user: User | null, profile: UserProfile | null }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -38,7 +39,7 @@ function Layout({ children, user, profile }: { children: React.ReactNode, user: 
 
   const navItems = [
     { name: 'Discover', path: '/discover', icon: Search },
-    { name: 'Interested', path: '/likes', icon: Bell },
+    { name: 'Interested', path: UI_TERMS.likesRoute, icon: Bell },
     { name: 'Matches', path: '/matches', icon: Heart },
     { name: 'Chat', path: '/chat', icon: MessageCircle },
     { name: 'Profile', path: '/profile', icon: UserIcon },
@@ -214,7 +215,7 @@ export default function App() {
           {/* Protected Routes */}
           <Route path="/setup" element={user ? (profile ? <Navigate to="/discover" /> : <ProfileSetup user={user} onComplete={(p) => setProfile(p)} />) : <Navigate to="/auth" />} />
           <Route path="/discover" element={user ? (profile ? <Discovery user={user} profile={profile} /> : <Navigate to="/setup" />) : <Navigate to="/auth" />} />
-          <Route path="/likes" element={user ? (profile ? <Likes user={user} /> : <Navigate to="/setup" />) : <Navigate to="/auth" />} />
+          <Route path={UI_TERMS.likesRoute} element={user ? (profile ? <Likes user={user} /> : <Navigate to="/setup" />) : <Navigate to="/auth" />} />
           <Route path="/matches" element={user ? (profile ? <Matches user={user} profile={profile} /> : <Navigate to="/setup" />) : <Navigate to="/auth" />} />
           <Route path="/chat" element={user ? (profile ? <Chat user={user} profile={profile} /> : <Navigate to="/setup" />) : <Navigate to="/auth" />} />
           <Route path="/chat/:matchId" element={user ? (profile ? <Chat user={user} profile={profile} /> : <Navigate to="/setup" />) : <Navigate to="/auth" />} />
