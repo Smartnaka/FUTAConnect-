@@ -43,7 +43,7 @@ FUTAConnect helps FUTA students discover each other, express interest, and conne
 
 - [Node.js](https://nodejs.org) v18 or later
 - A [Supabase](https://supabase.com) project
-- A [Google Gemini API key](https://aistudio.google.com/app/apikey)
+- A [Google Gemini API key](https://ai.google.dev/gemini-api/docs/api-key)
 
 ## Local Setup
 
